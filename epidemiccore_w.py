@@ -1,3 +1,4 @@
+import os as os
 import pystan
 import pandas as pd
 import numpy as np
@@ -20,7 +21,7 @@ from mpl_toolkits.axes_grid1 import host_subplot
 import mpl_toolkits.axisartist as AA
 
 rand = RandomState()
-
+THREADS = 40
 
 class Epidemic(object):
 
@@ -115,7 +116,7 @@ class Epidemic(object):
 		parameters: a, b, c
 		'''
 		S = S[0]
-		dsdt = [-a*S*np.log(S)-b*(S-S**2)-c*S]
+		dsdt = [-a*S*np.log(S + 1E-20)-b*(S-S**2)-c*S]
 		return dsdt
 
 	def Fisher_information_a(self,T):
@@ -845,7 +846,7 @@ class Epidemic(object):
 		# big penalty for hitting boundary
 		if np.isclose(a,self.bounda[0]) or np.isclose(a,self.bounda[1]) or np.isclose(b,self.boundb[0]) or np.isclose(b,self.boundb[1]) or np.isclose(c,self.boundc[0]) or np.isclose(c,self.boundc[1]):
 			Z = 1E6
-		print("theta=", abc, "-LogLike=", Z, "#okay=", j, "#points=", self.data.shape[0])
+		# print("theta=", abc, "-LogLike=", Z, "#okay=", j, "#points=", self.data.shape[0])
 		return Z
 
 	def density(self,theta):
@@ -1009,6 +1010,16 @@ class Epidemic(object):
 		else:
 			return 0
 
+	def cov_abc(self):
+		if self.fits is not None:
+			fitted_parms = np.zeros((len(self.theta), len(self.fits)), dtype=np.float)
+			fitted_parms[0] = list(f.a for f in self.fits)
+			fitted_parms[1] = list(f.b for f in self.fits)
+			fitted_parms[2] = list(f.c for f in self.fits)
+			return np.cov(fitted_parms)
+		else:
+			return np.zeros((len(self.theta), len(self.fits)), dtype=np.float)
+
 	def var_R0(self):
 		if self.fits is not None:
 			return np.var(list(f.R0 for f in self.fits))
@@ -1141,7 +1152,27 @@ class Epidemic(object):
 		else:
 			return 0
 
-	def summary(self):
+	def dropout_benefit(self):
+		z = np.linspace(0.01, 0.99, 100)
+		Out = []
+		for i, th in enumerate(self.get_theta()):
+			out = []
+			for t in z:
+				R0d = th[1] / (th[0] * t)
+				rhod = th[2] / th[1]
+				taunodrop = ((R0d + lambertw(-R0d * np.exp(-R0d * (1 + rhod)))) / R0d).real
+				out.append(taunodrop)
+			Out.append(np.asarray(out))
+		Out = np.asarray(Out)
+		change = (self.tau - Out) / Out * 100
+		pt = self.delta/self.a
+		idx = sum(1 - z > pt)
+		temp = np.mean(change, axis=0)
+		self.dropout_benefit = temp[idx]
+
+
+
+	def summary(self, ifSave = False, fname = None):
 
 		headers=['Parameter','Name','MLE','Mean','StdErr']
 		table = [['T', 'final time', self.T, None if self.fits is None else self.mean_T(), None if self.fits is None else np.sqrt(self.var_T())],
@@ -1162,8 +1193,17 @@ class Epidemic(object):
 			['offset','shift parameter',None if self.offset is None else self.offset,None,None]]
 		print(tabulate(table,headers=headers))
 
-		print(tabulate(table,headers=headers,tablefmt="latex_booktabs"))
+		#print(tabulate(table, headers=headers, tablefmt="html"))
 
+		# print(tabulate(table,headers=headers,tablefmt="latex_booktabs"))
+
+		if ifSave:
+			str1 = '\\documentclass{article}\n \\usepackage{booktabs} \n \\begin{document}'
+			str2 = '\\end{document}'
+			if fname == None:
+				fname = 'summary.tex'
+			with open(fname, 'w') as outputfile:
+				outputfile.write(str1 + tabulate(table, headers=headers, tablefmt="latex_booktabs") + str2)
 		return self
 
 	@property
@@ -1372,9 +1412,12 @@ class Epidemic(object):
 		plt.ylabel('percent change in epidemic size')
 		if pt is not None:
 			plt.axvline(x=pt,color='r',linestyle='-')
+			idx = sum(1 - z > pt)
+			temp = np.mean(change,axis=0)
+			self.dropout_benefit = temp[idx]
 		return fig
 
-	def fit(self,N=None):
+	def fit(self,N=None, summary = False, ifSave = False, fname='summary.tex'):
 
 		'''
 		N = number of (random) samples to use for fit
@@ -1390,7 +1433,7 @@ class Epidemic(object):
 			self.objfxn, 
 			x0=tuple(self.theta), 
 			bounds=[self.bounda, self.boundb, self.boundc],
-			options={'disp': True}
+			options={'disp': False}
 		).x
 
 		# compute standard errors of parameters
@@ -1406,7 +1449,12 @@ class Epidemic(object):
 		self.survivaldata = np.asarray(list(1-self.ecdf(x)*(1-self.S(self.T)) for x in self.df['infection'].values))
 
 		# print summary
-		self.summary()
+		if summary:
+			self.summary()
+		# self.summary()
+		if ifSave:
+			self.summary(ifSave=True, fname=fname)
+
 
 		return self
 
@@ -1445,11 +1493,73 @@ class Epidemic(object):
 		'''
 		fits = []
 		for i in range(1,n+1):
-			print("sample", i)
+			# print("sample", i)
 			df = self.simulate_from_model(N)
 			fit = Epidemic(file_or_df=df,bounds=[self.bounda, self.boundb, self.boundc],abc=self.theta,parent=self).fit()
 			fits.append(fit)
 		self.fits = fits
+
+		return self
+
+	def simulate_and_fit_parallel(self, N, n):
+		'''
+        simulate N data from the model n times and refit
+        '''
+		epidemic_obj_arr = []
+		total_time = 0
+		import time
+
+		for i in range(1, n + 1):
+			# print("sample", i // 100)
+			df = self.simulate_from_model(N)
+			st = time.time()
+			epidemic_obj = Epidemic(file_or_df=df, bounds=[self.bounda, self.boundb, self.boundc], abc=self.theta,
+									parent=self)
+			total_time += time.time() - st
+			epidemic_obj_arr.append(epidemic_obj)
+
+		import pickle
+
+		st = time.time()
+		if os.path.exists("epidemic_objects_array_fitted"):
+			os.remove("epidemic_objects_array_fitted")
+		pickle.dump(epidemic_obj_arr, open("epidemic_objects_array", "wb"), protocol=3)
+		os.system("mpiexec -n %s python parallel_epidemic.py" % THREADS)
+		epidemic_objects_array_fitted = pickle.load(open("epidemic_objects_array_fitted", "rb"))
+		print("Total fit time %f" % ((time.time() - st) / 60.0))
+
+		self.fits = epidemic_objects_array_fitted
+		return self
+
+	def simulate_and_fit_parallel_laplace(self, N, n, rank):
+		'''
+        simulate N data from the model n times and refit
+        '''
+		epidemic_obj_arr = []
+		total_time = 0
+		import time
+
+		for i in range(1, n + 1):
+			# print("sample", i)
+			df = self.simulate_from_model(N)
+			st = time.time()
+			epidemic_obj = Epidemic(file_or_df=df, bounds=[self.bounda, self.boundb, self.boundc], abc=self.theta,
+									parent=self)
+			total_time += time.time() - st
+			epidemic_obj_arr.append(epidemic_obj)
+
+		import pickle
+
+		st = time.time()
+		THREADS = 4
+		# if os.path.exists("epidemic_objects_array_fitted_%s" % rank):
+		# 	os.remove("epidemic_objects_array_fitted_%s" % rank)
+		pickle.dump(epidemic_obj_arr, open("epidemic_objects_array_%s" % rank, "wb"), protocol=3)
+		os.system("mpiexec -n %s python parallel_epidemic_laplace.py %s" % (THREADS, rank))
+		epidemic_objects_array_fitted = pickle.load(open("epidemic_objects_array_fitted_%s" % rank, "rb"))
+		print("Total fit time %f" % ((time.time() - st) / 60.0))
+
+		self.fits = epidemic_objects_array_fitted
 
 		return self
 
@@ -1550,7 +1660,47 @@ class Epidemic(object):
 
 		return self
 
-	def projection(self):
+	@classmethod
+	def projection(cls,epidemics, day0, nDays, fname):
+		l = len(epidemics)
+		today = pd.to_datetime('today')
+		dates = np.array([day0+ pd.DateOffset(i) for i in np.arange(nDays)])
+		time_points = np.arange(nDays)
+		mean = np.zeros((l,nDays), dtype=np.float)
+		low = np.zeros((l,nDays), dtype=np.float)
+		high = np.zeros((l,nDays), dtype=np.float)
+		i = 0
+		for epi in epidemics:
+			# tt = np.linspace(0,epi.plot_T*1.25,1000)
+			S0 = [1]
+			sol = odeint(Epidemic.Deriv_S, S0, time_points, args=tuple(epi.theta))
+			S = interp1d(time_points,sol[:,0])
+			mean[i] = np.asarray(list(epi.n*(1-S(x)) for x in time_points))
+			low[i] = np.asarray(list(binom.ppf(0.005,int(epi.n)+1,1-S(x)) for x in time_points))
+			high[i] = np.asarray(list(binom.ppf(0.995,int(epi.n)+1,1-S(x)) for x in time_points))
+			mean[i][0] = 1
+			low[i][0] = 1
+			high[i][0] = 1
+			i = i + 1
+
+		np.savetxt(os.path.join(fname + '_mean.txt'), np.int64(np.ceil(np.mean(mean,0))), delimiter=',')
+		np.savetxt(os.path.join(fname + '_high.txt'), np.int64(np.ceil(np.mean(high, 0))), delimiter=',')
+		np.savetxt(os.path.join(fname + '_low.txt'), np.int64(np.ceil(np.mean(low, 0))), delimiter=',')
+		my_dict = {}
+		my_dict['Dates'] = dates
+		my_dict['Mean'] = np.int64(np.ceil(np.mean(mean,0)))
+		my_dict['High'] = np.int64(np.ceil(np.mean(high,0)))
+		my_dict['Low'] = np.int64(np.ceil(np.mean(low,0)))
+		my_dict = pd.DataFrame(my_dict)
+		my_dict.to_csv(os.path.join(fname + '.csv'), index=False)
+		return my_dict
+		# with open(os.path.join(fname + '.csv'), 'w') as f:
+		# 	for key in my_dict.keys():
+		# 		f.write("%s,%s\n" % (key, my_dict[key]))
+		# print('Predictions saved')
+		# return my_dict
+
+
 
 
 

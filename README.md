@@ -12,7 +12,7 @@ If you have questions, comments, criticisms, or corrections, please email me at 
 ```bash
 git clone https://github.com/wasiur/dynamic_survival_analysis.git
 ```
-from your terminal. Please provide userid and password when prompted.
+from your terminal.
 
 3. Our implementation depends on a number of packages. In order for the parallelization to run smoothly, we recommend installing the following python environment "dynamic_survival_analysis". This is included in the file _environment.yml_. If you are using Anaconda (recommended), the environment can be installed by running
 ```bash
@@ -26,6 +26,7 @@ conda env list
 ```bash
 source activate dynamic_survival_analysis
 ```
+from your terminal.
 
 ## Data preparation
 The input data to the model should have following seven columns:
@@ -41,7 +42,6 @@ time  | daily_confirm | recovery | deaths |	cum_confirm |	cum_heal |	cum_dead
 
 The metadata to the main Python scripts is passed by creating the following Python dictionaries:
 ```python
-import os as os
 import numpy as np
 import pandas as pd
 try:
@@ -51,8 +51,7 @@ except ModuleNotFoundError:
 
 location = 'Ohio'  
 datafile = 'epi_data.csv'
-root_folder = os.getcwd()
-plot_folder = os.path.join(root_folder, 'plots')
+plot_folder =  'plots'
 estimate_gamma = True
 ifMPI = True
 last_date = pd.to_datetime(np.datetime64('2020-06-06 00:00:00'))

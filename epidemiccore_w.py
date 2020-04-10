@@ -20,8 +20,28 @@ from tabulate import tabulate
 from mpl_toolkits.axes_grid1 import host_subplot
 import mpl_toolkits.axisartist as AA
 
+from tudColours import *
+
 rand = RandomState()
 THREADS = 40
+
+def fig_save(fig, Plot_Folder, fname):
+    fig.savefig(os.path.join (Plot_Folder, fname),dpi=300)
+    fig.savefig (os.path.join (Plot_Folder, fname + "." + 'pdf'), format='pdf')
+
+
+def sample_correlated_asymptotic(m, cov):
+    sample = np.random.multivariate_normal(m, cov)
+    for i in range(len(m)):
+        if not (sample[i] > 0):
+            sample[i] = m[i]
+    return sample
+
+def parm_sample_correlated(m, cov, nSample=1):
+    sample = np.zeros((nSample,len(m)), dtype=np.float)
+    for i in range(nSample):
+        sample[i] = sample_correlated_asymptotic(m, cov)
+    return sample
 
 class Epidemic(object):
 
@@ -1563,6 +1583,18 @@ class Epidemic(object):
 
 		return self
 
+	@classmethod
+	def n_estimates(cls, theta, df):
+		nDays = len(df.time.values)
+		time_points = np.arange(nDays)
+		S0 = [1]
+		sol = odeint(Epidemic.Deriv_S, S0, time_points, args=tuple(theta))
+		S = interp1d(time_points, sol[:, 0])
+		mean = np.asarray(list((1 - S(x)) for x in time_points))
+		res = np.divide(df["cum_confirm"], mean)
+		res.pop(0)
+		return res
+
 	def get_histograms(self):
 
 		theta = list(self.get_theta())
@@ -1660,47 +1692,64 @@ class Epidemic(object):
 
 		return self
 
-	@classmethod
-	def projection(cls,epidemics, day0, nDays, fname):
-		l = len(epidemics)
-		today = pd.to_datetime('today')
-		dates = np.array([day0+ pd.DateOffset(i) for i in np.arange(nDays)])
+	def predict(self, samples, df, N, dates, plot_folder, fname):
+		nDays = len(dates)
 		time_points = np.arange(nDays)
-		mean = np.zeros((l,nDays), dtype=np.float)
-		low = np.zeros((l,nDays), dtype=np.float)
-		high = np.zeros((l,nDays), dtype=np.float)
-		i = 0
-		for epi in epidemics:
-			# tt = np.linspace(0,epi.plot_T*1.25,1000)
+		mean = np.zeros((N, nDays), dtype=np.float)
+		mean_daily = np.zeros((N, nDays), dtype=np.float)
+		theta = np.mean(samples, axis=0)
+		n = np.mean(Epidemic.n_estimates(tuple(theta), df))
+		fig = plt.figure()
+		for i in range(N):
 			S0 = [1]
-			sol = odeint(Epidemic.Deriv_S, S0, time_points, args=tuple(epi.theta))
-			S = interp1d(time_points,sol[:,0])
-			mean[i] = np.asarray(list(epi.n*(1-S(x)) for x in time_points))
-			low[i] = np.asarray(list(binom.ppf(0.005,int(epi.n)+1,1-S(x)) for x in time_points))
-			high[i] = np.asarray(list(binom.ppf(0.995,int(epi.n)+1,1-S(x)) for x in time_points))
+			sol = odeint(Epidemic.Deriv_S, S0, time_points, args=tuple(samples[i]))
+			S = interp1d(time_points, sol[:, 0])
+			mean[i] = np.asarray(list(n * (1 - S(x)) for x in time_points))
 			mean[i][0] = 1
-			low[i][0] = 1
-			high[i][0] = 1
-			i = i + 1
+			mean_daily[i] = np.append(mean[i][0], np.diff(mean[i]))
+			l1, = plt.plot(dates['d'].dt.date, mean[i], '-', color=myColours['tud2b'].get_rgb(), lw=1, alpha=0.05)
 
-		np.savetxt(os.path.join(fname + '_mean.txt'), np.int64(np.ceil(np.mean(mean,0))), delimiter=',')
-		np.savetxt(os.path.join(fname + '_high.txt'), np.int64(np.ceil(np.mean(high, 0))), delimiter=',')
-		np.savetxt(os.path.join(fname + '_low.txt'), np.int64(np.ceil(np.mean(low, 0))), delimiter=',')
+		m_ = np.int64(np.ceil(np.mean(mean, axis=0)))
+		l = np.int64(np.ceil(np.quantile(mean, q=0.025, axis=0)))
+		h = np.int64(np.ceil(np.quantile(mean, q=0.975, axis=0)))
+
+		S0 = [1]
+		n = np.mean(Epidemic.n_estimates(tuple(theta), df))
+		sol = odeint(Epidemic.Deriv_S, S0, time_points, args=tuple(theta))
+		S = interp1d(time_points, sol[:, 0])
+		m = np.asarray(list(n * (1 - S(x)) for x in time_points))
+		l2 = plt.plot(dates['d'].dt.date, m, '-', color=myColours['tud1d'].get_rgb(), lw=3)
+		l3 = plt.plot(dates['d'].dt.date, l, '--', color=myColours['tud1d'].get_rgb(), lw=1)
+		l4 = plt.plot(dates['d'].dt.date, h, '--', color=myColours['tud1d'].get_rgb(), lw=1)
+		l5 = plt.fill_between(dates['d'].dt.date, l, h, alpha=.1, color=myColours['tud1a'].get_rgb())
+
+		l6 = plt.axvline(x=df['time'].max(), color=myColours['tud7d'].get_rgb(), linestyle='--')
+		l6 = plt.axvline(x=df['time'][self.T - 1], color=myColours['tud7a'].get_rgb(), linestyle='-')
+		l7 = plt.plot(df['time'].values, df['cum_confirm'].values, '-', color=myColours['tud7d'].get_rgb(),
+					  lw=3)
+		plt.xlabel('Dates')
+		plt.ylabel('Cumulative infections')
+		fig_save(fig, plot_folder, fname)
+
+		fname_ = fname + '_daily_new'
+		fig = plt.figure()
+		for i in range(N):
+			l1 = plt.plot(dates['d'].dt.date, mean_daily[i], '-', color=myColours['tud2b'].get_rgb(), lw=1, alpha=0.05)
+		m_daily = np.append(m[0], np.diff(m))
+		l2, = plt.plot(dates['d'].dt.date, m_daily, '-', color=myColours['tud1d'].get_rgb(), lw=3,
+					   label='With mitigation')
+		l6 = plt.axvline(x=df['time'].max(), color=myColours['tud7d'].get_rgb(), linestyle='--')
+		l6 = plt.axvline(x=df['time'][self.T - 1], color=myColours['tud7a'].get_rgb(), linestyle='-')
+		plt.ylabel('Daily new infections')
+		plt.xlabel('Dates')
+		fig_save(fig, plot_folder, fname_)
+		m[0] = 1
 		my_dict = {}
-		my_dict['Dates'] = dates
-		my_dict['Mean'] = np.int64(np.ceil(np.mean(mean,0)))
-		my_dict['High'] = np.int64(np.ceil(np.mean(high,0)))
-		my_dict['Low'] = np.int64(np.ceil(np.mean(low,0)))
+		my_dict['Dates'] = dates['d']
+		my_dict['Mean'] = m
+		my_dict['High'] = h
+		my_dict['Low'] = l
 		my_dict = pd.DataFrame(my_dict)
-		my_dict.to_csv(os.path.join(fname + '.csv'), index=False)
+		my_dict.to_csv(os.path.join(plot_folder, fname + '.csv'), index=False)
 		return my_dict
-		# with open(os.path.join(fname + '.csv'), 'w') as f:
-		# 	for key in my_dict.keys():
-		# 		f.write("%s,%s\n" % (key, my_dict[key]))
-		# print('Predictions saved')
-		# return my_dict
-
-
-
-
 

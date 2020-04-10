@@ -44,39 +44,69 @@ The metadata to the main Python scripts is passed by creating the following Pyth
 ```python
 import numpy as np
 import pandas as pd
+import os as os
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
     import pickle
 
-location = 'Ohio'  
+root_folder = os.getcwd()
+data_folder = os.path.join(root_folder,'data')
+
+today = pd.to_datetime('today')
+location = 'Ohio'
 datafile = 'epi_data.csv'
 plot_folder =  'plots'
 estimate_gamma = True
 ifMPI = True
-last_date = pd.to_datetime(np.datetime64('2020-06-06 00:00:00'))
+ifsmooth = True
+last_date = pd.to_datetime(np.datetime64('2020-04-07 00:00:00'))
+burn_in = 5000
+nChains = 10
+
 dsa_dict = {'datafile': datafile,
             'location': 'Ohio',
             'plot_folder': plot_folder,
             'last_date': last_date,
-            'estimate_gamma': estimate_gamma}
+            'estimate_gamma': estimate_gamma,
+            'ifsmooth': ifsmooth,
+            'ifMPI': ifMPI}
 
 laplace_dict = {'datafile': datafile,
                 'location': 'Ohio',
                 'plot_folder': plot_folder,
-                'ifMPI': 'true',
+                'ifMPI': ifMPI,
                 'last_date': last_date,
-                'estimate_gamma': estimate_gamma}
+                'estimate_gamma': estimate_gamma,
+                'ifsmooth': ifsmooth}
 
-fname = 'dsa_dict' + '.pkl'
-f = open(fname,"wb")
+mh_dict = {'datafile': datafile,
+            'location': 'Ohio',
+            'plot_folder': plot_folder,
+            'ifMPI': ifMPI,
+            'last_date': last_date,
+            'estimate_gamma': estimate_gamma,
+            'ifsmooth': ifsmooth,
+           'burn_in': burn_in,
+           'nChains': nChains}
+
+
+fname = 'dsa_dict' + today.strftime("%m%d") +  '.pkl'
+f = open(os.path.join(data_folder,fname),"wb")
 pickle.dump(dsa_dict,f)
 f.close()
 
-fname = 'laplace_dict' + '.pkl'
-f = open(fname,"wb")
+fname = 'laplace_dict' + today.strftime("%m%d") + '.pkl'
+f = open(os.path.join(data_folder,fname),"wb")
 pickle.dump(laplace_dict,f)
 f.close()
+
+fname = 'mh_dict' + today.strftime("%m%d") + '.pkl'
+f = open(os.path.join(data_folder,fname),"wb")
+pickle.dump(mh_dict,f)
+f.close()
+
+
 ```
 Description of the variables:
 Name | Description
@@ -94,6 +124,9 @@ If recovery information is not available, the model can be still run by explicit
 We used COVID-19 data published by the New York Times to inform our model. The repository can be accessed [here](https://github.com/nytimes/covid-19-data).
 
 ## Running the dynamic survival analysis model
+1. Open the Jupyter notebooks and run the cells. Please modify the commands as needed.
+
+Alternatively, perform the following: 
 1. Prepare the ```.pkl``` files for the main python scripts. Instruction given above.
 
 2. The model with a strong prior on the parameters, which could be estimated from other epidemics that can be considered similar, can be run by invoking
@@ -115,3 +148,20 @@ from the terminal or by running
 runfile('DSA_Laplace.py')
 ```
 from within Python.
+
+4. The Metropolis-Hastings algorithm to draw posterior samples can be run by invoking
+```bash
+python DSA_Bayesian.py
+```
+from within the terminal or by running 
+```python
+runfile('DSA_Bayesian.py')
+```
+from within Python. 
+
+
+## Examples
+We provide two examples. 
+1. The first example extracts count data from a repository maintained by the New York Times. This example fits the basic DSA model. 
+
+2. The second example works on a dummy data set and performs the full Laplace approximation. 

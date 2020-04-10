@@ -1,5 +1,9 @@
 ## Run python DSA.py
 
+'''
+This python code performs dynamic survival analysis.
+'''
+
 from numpy.random import RandomState
 import time
 
@@ -13,10 +17,6 @@ try:
 except ModuleNotFoundError:
     import pickle
 
-# datafile = sys.argv[1]
-# plot_folder = sys.argv[2]
-# location = sys.argv[3]
-
 today = pd.to_datetime('today')
 
 root_folder = os.getcwd()
@@ -27,20 +27,11 @@ dsa_dict = pickle.load(open(os.path.join(data_folder,fname), "rb"))
 datafile = dsa_dict['datafile']
 plot_folder = dsa_dict['plot_folder']
 location = dsa_dict['location']
-# midwest_remove = np.int(dsa_dict['midwest_remove'])
 last_date = dsa_dict['last_date']
 estimate_gamma = dsa_dict['estimate_gamma']
-# estimate_gamma = dsa_dict['estimate_gamma'].lower() == 'true'
 ifsmooth = dsa_dict['ifsmooth']
-# ifsmooth = dsa_dict['ifsmooth'].lower() == 'true'
-
 ifMPI = dsa_dict['ifMPI']
-# ifMPI = dsa_dict['ifMPI'].lower() == 'true'
-if ifMPI:
-    print('Using MPI parallelization')
 
-if estimate_gamma:
-    print('Estimating gamma')
 
 
 n_remove = (today - last_date).days

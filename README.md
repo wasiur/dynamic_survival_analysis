@@ -117,6 +117,9 @@ plot_folder | The name of the output folder. All output figures and tables will 
 estimate_gamma | Binary variable indicating whether to estimate the recovery rate. By default, it is set to ```True```.
 last_date | Last date of data to be considered for modelling purposes.
 ifMPI | Binary variable indicating whether to use ```MPI``` for parallelization. By default, it is set to ```True```.
+ifsmooth | Binary variable indicating whether the daily new infection counts need to be smoothed by using the moving average method. BY default, it is set to ```True```.
+burn_in | Integer variable indicating the burn-in for the Metropolis-Hastings scheme.
+nChains | Integer variable indicating number of parallel Metropolis-Hastings chains. 
 
 
 If recovery information is not available, the model can be still run by explicitly setting the variable ```estimate_gamma = False```.

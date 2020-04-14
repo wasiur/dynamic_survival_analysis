@@ -32,17 +32,18 @@ estimate_gamma = dsa_dict['estimate_gamma']
 ifsmooth = dsa_dict['ifsmooth']
 ifMPI = dsa_dict['ifMPI']
 
-
-
-n_remove = (today - last_date).days
-print('Removing last %s days' % n_remove)
-
 plot_folder = os.path.join(root_folder,plot_folder)
 
 if not(os.path.exists(plot_folder)):
     os.system('mkdir %s' %plot_folder)
 
 df_ohio_full = pd.read_csv(os.path.join(data_folder,datafile), parse_dates=["time"])
+
+
+last_date_on_file = df_ohio_full.time.max()
+
+n_remove = (last_date_on_file - last_date).days
+print('Removing last %s days' % n_remove)
 
 df_ohio = df_ohio_full.drop(df_ohio_full.tail(n_remove).index)
 print(df_ohio)

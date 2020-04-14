@@ -59,8 +59,8 @@ estimate_gamma = laplace_dict['estimate_gamma']
 ifsmooth = laplace_dict['ifsmooth']
 ifMPI = laplace_dict['ifMPI']
 
-n_remove = (today - last_date).days
-print('Removing last %s days' % n_remove)
+
+
 
 plot_folder = os.path.join(root_folder,plot_folder)
 
@@ -68,6 +68,11 @@ if not(os.path.exists(plot_folder)):
     os.system('mkdir %s' %plot_folder)
 
 df_ohio_full = pd.read_csv(os.path.join(data_folder,datafile), parse_dates=["time"])
+
+last_date_on_file = df_ohio_full.time.max()
+
+n_remove = (last_date_on_file - last_date).days
+print('Removing last %s days' % n_remove)
 
 df_ohio = df_ohio_full.drop(df_ohio_full.tail(n_remove).index)
 print(df_ohio)
@@ -94,6 +99,7 @@ else:
         i + rand.uniform() for i, y in enumerate(df_ohio['daily_confirm'].values) for z in range(y.astype(int)))
     df = pd.DataFrame(infection_data,index=range(len(infection_data)),columns=['infection'])
 
+pickle.dump(df,open("df","wb"),protocol=3)
 
 if estimate_gamma:
     print('Generating recovery times by uniformly distributing throughout each day')
@@ -117,6 +123,8 @@ if ifMPI:
 else:
     nPriorSamples = 100
 
+st = time.time()
+
 thetas = draw_from_prior(p, nSample = nPriorSamples)
 if os.path.exists("thetas"):
     os.remove("thetas")
@@ -135,6 +143,8 @@ else:
 fname = 'fits_' + today.strftime("%m%d") + '.csv'
 thetas_fitted.to_csv(os.path.join(plot_folder,fname))
 
+
+print("Total time to draw posterior samples %s" % (time.time() - st))
 
 temp = np.zeros((np.size(thetas,1), np.size(thetas_fitted,0)), dtype=np.float)
 temp[0] = thetas_fitted.a.values

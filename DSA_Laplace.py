@@ -107,6 +107,7 @@ if estimate_gamma:
         i + rand.uniform() for i, y in enumerate(df_ohio['recovery'].values + df_ohio['deaths'].values) for z in
         range(y.astype(int)))
     df_recovery = pd.DataFrame(recovery_data, index=range(len(recovery_data)), columns=['recovery'])
+    pickle.dump(df_recovery, open("df_recovery", "wb"), protocol=3)
 
 plot_T = 150
 N = min(2000,df_ohio['cum_confirm'].iloc[-1])

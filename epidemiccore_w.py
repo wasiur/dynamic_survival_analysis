@@ -29,6 +29,21 @@ def fig_save(fig, Plot_Folder, fname):
     fig.savefig(os.path.join (Plot_Folder, fname),dpi=300)
     fig.savefig (os.path.join (Plot_Folder, fname + "." + 'pdf'), format='pdf')
 
+def poisson_ode_fun(S, t, abc):
+    a, b, c = abc
+    dsdt = np.float64(- a * S * np.log(S, dtype=np.float64) - b * (S - S ** 2) - c * S)
+    return dsdt
+
+def euler1d(odefun, t, ic=1.0, abc=(0.4,0.6,1E-6)):
+    stepsize = t[1] - t[0]
+    sol = np.zeros(len(t), dtype=np.float64)
+    sol[0] = ic
+    a,b,c =abc
+    f = lambda S: odefun(S, t,abc)
+    for i in range(1,len(t)):
+        sol[i] = sol[i-1] + np.float64(f(sol[i-1])) * stepsize
+    return sol
+
 
 def sample_correlated_asymptotic(m, cov):
     sample = np.random.multivariate_normal(m, cov)
@@ -42,6 +57,16 @@ def parm_sample_correlated(m, cov, nSample=1):
     for i in range(nSample):
         sample[i] = sample_correlated_asymptotic(m, cov)
     return sample
+
+def prior(theta,p):
+	res = np.float64(p[0].pdf(theta[0]) * p[1].pdf(theta[2]) * p[2].pdf(theta[2]))
+	return res
+
+def log_prior(theta,p):
+	if prior(theta,p) > 0:
+		return np.log(prior(theta,p), dtype=np.float64)
+	else:
+		return -np.inf
 
 class Epidemic(object):
 
@@ -136,7 +161,7 @@ class Epidemic(object):
 		parameters: a, b, c
 		'''
 		S = S[0]
-		dsdt = [-a*S*np.log(S + 1E-20)-b*(S-S**2)-c*S]
+		dsdt = [-a*S*np.log(S)-b*(S-S**2)-c*S]
 		return dsdt
 
 	def Fisher_information_a(self,T):
@@ -700,6 +725,49 @@ class Epidemic(object):
 		print("alpha=", alpha, "beta=", beta, "gamma=", gamma, "offset=", offset, "-LOGLIKE=", lk)
 		return lk
 
+	def estimate_gamma_sample(self,sample, df_recovery, N,x0,bounds, approach='gamma'):
+		S0 = [1.0]
+		t = self.plot_T
+		if approach == 'offset':
+			t += bounds[1][1]
+		tt = np.linspace(0,t,1000)
+		sol = odeint(Epidemic.Deriv_S, S0, tt, args=tuple(sample))
+		S = interp1d(tt,sol[:,0])
+		self.Scure = S
+		self.Tcure = np.ceil(df_recovery['recovery'].max())
+		self.datacure = df_recovery['recovery'].sample(N,replace=True).values
+
+		if approach == 'offset':
+			bounds_gamma = bounds
+			gamma, offset = minimize(
+				self.negloglikelihood_gammaoffset,
+				x0=x0,
+				bounds=bounds_gamma,
+				options={'disp': False, 'maxiter':3}
+			).x
+			return gamma, offset
+		elif approach == 'prior':
+			bounds_gamma = bounds
+			offset = 0
+			alpha, beta = minimize(
+				self.negloglikelihood_alphabeta,
+				x0=x0,
+				bounds=bounds_gamma,
+				options={'disp': False, 'maxiter':3}
+			).x
+			gamma = alpha*beta
+		elif approach == 'gamma':
+			offset = 0
+			bounds_gamma = bounds
+			gamma, = minimize(
+				self.negloglikelihood_gamma,
+				x0=x0,
+				bounds=bounds_gamma,
+				options={'disp': False, 'maxiter':3}
+			).x
+		return gamma, offset
+
+
 	def estimate_gamma(self,df_recovery,N,x0,bounds,approach='gamma'):
 
 		'''
@@ -838,6 +906,29 @@ class Epidemic(object):
 		ax.get_xaxis().set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, p: format(int(x), ',')))
 		return fig
 
+	def laplace_objfxn(self,abc):
+		a,b,c=abc
+		S0 = [1.0]
+		#t = np.linspace(0,self.data.max(),1000)
+		sol = euler1d(poisson_ode_fun, self.t, abc=(a,b,c))
+		S = interp1d(self.t, sol)
+		# sol = odeint(Epidemic.Deriv_S, S0, self.t, mxstep = 1000, args=(a, b, c))
+		# S = interp1d(self.t,sol[:,0])
+		smax = S(self.T)
+		factor = np.float64(1 - smax)
+		Z = - log_prior([a,b,c], self.p)
+		j = 0
+		for x in self.data.values:
+			s = np.float64(S(x))
+			if s > 0:
+				z = np.float64((a*s*np.log(s, dtype=np.float64)+b*(s-s**2)+c*s)/factor)
+				if z > 0:
+					Z += -np.log(z, dtype=np.float64)
+					j += 1
+		k = self.data.shape[0]
+		Z = Z/j*k if j > 0 else 1E6 # big penalty if no points satisfy positive constraint
+		return Z
+
 	def objfxn(self,abc):
 		'''
 		negative log-likelihood of model given data
@@ -900,7 +991,7 @@ class Epidemic(object):
 
 		return df
 
-	def __init__(self, file_or_df, bounds=[], plot_T=None,abc=None,parent=None):
+	def __init__(self, file_or_df, bounds=[], plot_T=None,abc=None,parent=None, p=None):
 
 		if file_or_df is None and plot_T is None and abc is None:
 			raise ValueError('if file_or_df is None, then plot_T and abc must be provided')
@@ -923,6 +1014,9 @@ class Epidemic(object):
 			self.bounda = (0.1,1)
 			self.boundb = (0.1,1)
 			self.boundc = (1E-8,1E-3)
+
+		if p is not None:
+			self.p = p
 
 		self.stda = self.stdb = self.stdc = None
 		self.data = self.datacure = None
@@ -1250,6 +1344,35 @@ class Epidemic(object):
 				if not np.isclose(fit.a,self.bounda[0]) and not np.isclose(fit.a,self.bounda[1]) and not np.isclose(fit.b,self.boundb[0]) and not np.isclose(fit.b,self.boundb[1]) and not np.isclose(fit.c,self.boundc[0]) and not np.isclose(fit.c,self.boundc[1]):
 					yield np.asarray([fit.a,fit.b,fit.c])
 
+	def plot_density_fit_posterior(self, samples):
+		nSamples = np.size(samples, axis=0)
+		Ds = np.zeros((nSamples, len(self.t)), dtype=np.float)
+		for idx in range(nSamples):
+			Ds[idx] = self.density(samples[idx])
+		Dslow = np.quantile(Ds, q=0.025, axis=0)
+		Dshigh = np.quantile(Ds, q=0.975, axis=0)
+		Dmean = np.mean(Ds, axis=0)
+		fig = plt.figure()
+		plt.plot(self.t, Dmean, '-', color=myColours['tud7d'].get_rgb(), lw=3)
+		plt.plot(self.t, Dslow, '--', color=myColours['tud7d'].get_rgb(), lw=1)
+		plt.plot(self.t, Dshigh, '--',color=myColours['tud7d'].get_rgb(), lw=1)
+		plt.axvline(x=self.T, color=myColours['tud11d'].get_rgb(), linestyle='-')
+
+		mirrored_data = (2 * self.T - self.df['infection'].values).tolist()
+		combined_data = self.df['infection'].values.tolist() + mirrored_data
+		dense = gaussian_kde(combined_data)
+		denseval = list(dense(x) * 2 for x in self.t)
+		plt.plot(self.t, denseval, '-', color=myColours['tud1d'].get_rgb(), lw=3)
+		plt.fill_between(self.t, Dslow, Dshigh, alpha=.3, color=myColours['tud7d'].get_rgb())
+		plt.legend()
+		plt.ylabel('$-S_t/(1-S_T)$')
+		plt.xlabel('t')
+		c = cumtrapz(Dmean, self.t)
+		ind = np.argmax(c >= 0.001)
+		plt.xlim((self.t[ind], self.t[-1] + 1))
+
+		return fig
+
 	def plot_density_fit(self):
 
 		Ds = np.asarray(list(self.density(th) for th in self.get_theta()))
@@ -1437,6 +1560,47 @@ class Epidemic(object):
 			self.dropout_benefit = temp[idx]
 		return fig
 
+	def laplace_fit(self,N=None, summary = False, ifSave = False, fname='summary.tex'):
+
+		'''
+		N = number of (random) samples to use for fit
+		'''
+
+		if N is None:
+			self.data = self.df['infection']
+		else:
+			self.data = self.df['infection'].sample(N,replace=True)
+
+		# fit data
+		self.a, self.b, self.c = minimize(
+			self.laplace_objfxn,
+			x0=tuple(self.theta),
+			options={'disp': False}
+		).x
+
+		# compute standard errors of parameters
+		self._std()
+
+		# for the parameter fit, get interpolator and save
+		S0 = [1]
+		self.sol = odeint(Epidemic.Deriv_S, S0, self.t, args=tuple(self.theta))
+		self.S = interp1d(self.t,self.sol[:,0],kind='linear')
+
+		# get empirical distribution of data
+		self.ecdf = ECDF(self.df['infection'].values)
+		self.survivaldata = np.asarray(list(1-self.ecdf(x)*(1-self.S(self.T)) for x in self.df['infection'].values))
+
+		# print summary
+		if summary:
+			self.summary()
+		# self.summary()
+		if ifSave:
+			self.summary(ifSave=True, fname=fname)
+
+
+		return self
+
+
 	def fit(self,N=None, summary = False, ifSave = False, fname='summary.tex'):
 
 		'''
@@ -1519,6 +1683,19 @@ class Epidemic(object):
 			fits.append(fit)
 		self.fits = fits
 
+		return self
+
+	def laplace_simulate_and_fit(self,N,n):
+		'''
+		simulate N data from the model n times and refit
+		'''
+		fits = []
+		for i in range(1,n+1):
+			# print("sample", i)
+			df = self.simulate_from_model(N)
+			fit = Epidemic(file_or_df=df,bounds=[self.bounda, self.boundb, self.boundc],abc=self.theta,parent=self, p=self.p).laplace_fit()
+			fits.append(fit)
+		self.fits = fits
 		return self
 
 	def simulate_and_fit_parallel(self, N, n):
@@ -1698,7 +1875,8 @@ class Epidemic(object):
 		mean = np.zeros((N, nDays), dtype=np.float)
 		mean_daily = np.zeros((N, nDays), dtype=np.float)
 		theta = np.mean(samples, axis=0)
-		n = np.mean(Epidemic.n_estimates(tuple(theta), df))
+		# n = np.mean(Epidemic.n_estimates(tuple(theta), df))
+		n = self.n
 		fig = plt.figure()
 		for i in range(N):
 			S0 = [1]

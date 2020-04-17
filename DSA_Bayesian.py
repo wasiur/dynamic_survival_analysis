@@ -83,12 +83,23 @@ if estimate_gamma:
 n_prior = 10
 chain_length = 10**5
 
+N = min(2000,df_ohio['cum_confirm'].iloc[-1])
+n = 1000
+plot_T = 150 # show system through end of epidemic
+# bounds = [(0.1,3),(0.1,3),(1E-9,1E-3)]
+bounds = [(0.3,0.50),(0.5,0.70),(1E-9,1E-3)]
+import pickle
+
 ## set up prior
-a = expon(scale=0.4)
-b = expon(scale=0.6)
-c = expon(scale=1E-6)
+# a = expon(scale=0.4)
+# b = expon(scale=0.6)
+# c = expon(scale=1E-6)
+a = uniform(loc=bounds[0][0], scale=bounds[0][1])
+b = uniform(loc=bounds[1][0], scale=bounds[1][1])
+c = uniform(loc=bounds[2][0], scale=bounds[2][1])
 p = [a,b,c]
-proposal = norm(scale=1E-1)
+# proposal = norm(scale=5E-2)
+proposal = p
 bayes = {'p': p,
          'proposal': proposal,
          'chain_length': chain_length,
@@ -99,15 +110,11 @@ fname = 'bayes' + today.strftime("%m%d")
 with open(os.path.join (plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
             pickle.dump(bayes, output, -1)
 
-N = min(2000,df_ohio['cum_confirm'].iloc[-1])
-n = 1000
-plot_T = 150 # show system through end of epidemic
-bounds = [(0.1,1),(0.1,1),(1E-9,1E-1)]
-import pickle
+
 
 st = time.time()
 
-epiT = Epidemic(file_or_df=df,bounds=bounds,abc=tuple(0.4, 0.6, 1E-6),plot_T=plot_T)
+epiT = Epidemic(file_or_df=df,bounds=bounds,abc=(0.4, 0.6, 1E-6),plot_T=plot_T)
 epiT.fit(N=N) # use all the data
 
 

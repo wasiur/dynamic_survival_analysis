@@ -7,7 +7,6 @@ import sys
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
-
 def compute_epidemic_fit_in_parallel(epidemic_obj_arr, start_idx, end_idx):
     res = []
     for index in range(start_idx, end_idx):

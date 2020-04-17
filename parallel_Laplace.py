@@ -12,12 +12,14 @@ import os as os
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
-
-def laplace_p(theta, n, plot_T=150, bounds=[(0.1,1),(0.1,1),(1E-9,1E-4)]):
-    N = min(1000,np.size(df))
-    epi = Epidemic(file_or_df=df, bounds=bounds, abc=tuple(theta), plot_T=plot_T)
+def laplace_p(df, theta, n=5):
+    N = min(2000,np.size(df))
+    epi = Epidemic(file_or_df=df, bounds=bounds, abc=tuple(theta), plot_T=150, p=p)
+    #epi.laplace_fit(N=N)
     epi.fit(N=N)
-    epi.simulate_and_fit_parallel_laplace(N=N, n=n, rank=rank)
+    epi.simulate_and_fit(N=N, n=n)
+    #epi.laplace_simulate_and_fit(N=n, n=n)
+    # epi.simulate_and_fit_parallel_laplace(N=N, n=n, rank=rank)
     fitted_parms = pd.DataFrame(
         {'a': list(f.a for f in epi.fits),
          'b': list(f.b for f in epi.fits),
@@ -34,7 +36,7 @@ def laplace_sample_in_parallel(start_idx, end_idx):
     colNames = ['a', 'b', 'c', 'kinfty', 'R0', 'n', 'tau', 'rho']
     res = pd.DataFrame(columns=colNames)
     for index in range(start_idx, end_idx):
-        temp = laplace_p(df, thetas[index], n=100, plot_T=150)
+        temp = laplace_p(df, thetas[index])
         res = res.append(temp, ignore_index=True)
     comm.send(res, dest=0, tag=rank)
 
@@ -44,6 +46,8 @@ if __name__ == '__main__':
     thetas = pickle.load(open("thetas", "rb"))
     df = pickle.load(open("df", "rb"))
     df_recovery = pickle.load(open("df_recovery", "rb"))
+    bounds = pickle.load(open("bounds","rb"))
+    p = pickle.load(open("p", "rb"))
     ln = len(thetas)
     size = comm.Get_size()
 

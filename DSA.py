@@ -77,9 +77,10 @@ if estimate_gamma:
         i + rand.uniform() for i, y in enumerate(df_ohio['recovery'].values + df_ohio['deaths'].values) for z in
         range(y.astype(int)))
     df_recovery = pd.DataFrame(recovery_data, index=range(len(recovery_data)), columns=['recovery'])
+    pickle.dump(df_recovery, open("df_recovery", "wb"), protocol=3)
 
 
-bounds = [(0.1,1),(0.1,1),(1E-9,1E-1)]
+bounds = [(0.1,1.0),(0.1,1.0),(1E-9,1E-1)]
 
 N = min(2000,df_ohio['cum_confirm'].iloc[-1])
 n = 1000
@@ -99,18 +100,15 @@ else:
 
 print("Total time Simulate and Fit %s" % (time.time() - st))
 
-print('Plotting density fit\n')
-fig_density = epiT.plot_density_fit()
-fname = 'Tfinaldensity' + today.strftime("%m%d")
-fig_save(fig_density,plot_folder,fname)
-
-
 fig_inf_curve, fig_inf_T = epiT.plot_infections()
 fname = 'Tfinalinfections' + today.strftime("%m%d")
 fig_save(fig_inf_T,plot_folder,fname)
 
 if estimate_gamma:
     print('Estimating gamma\n')
+    THREADS = 40
+    os.system("mpiexec -n %s python estimate_gamma_parallel.py" % THREADS)
+
     fig_recovery = epiT.estimate_gamma(df_recovery = df_recovery, N=N, x0=(0.1, -5),
                                        bounds=[(1.0 / 25, 1.0 / 5), (-10, 0)], approach='offset')
     fname = 'recovery_' + today.strftime("%m%d")
@@ -140,16 +138,24 @@ with open(os.path.join (plot_folder, fname), 'wb') as output:  # Overwrites any 
 
 fname = 'fitted_parms_' + today.strftime("%m%d") + '.csv'
 fitted_parms = pd.DataFrame({'a': list(f.a for f in epiT.fits), 'b' : list(f.b for f in epiT.fits), 'c': list(f.c for f in epiT.fits)})
-fitted_parms.to_csv(os.path.join(plot_folder,fname))
+fitted_parms.to_csv(os.path.join(plot_folder,fname), index=False)
 
 m = epiT.theta
 s = [np.sqrt(epiT.var_a()), np.sqrt(epiT.var_b()), np.sqrt(epiT.var_c())]
 cov = epiT.cov_abc()
 
+nSim = 5000
+samples = parm_sample_correlated(m,cov,nSim)
+
+print('Plotting density fit\n')
+# fig_density = epiT.plot_density_fit()
+fig_density = epiT.plot_density_fit_posterior(samples)
+fname = 'Tfinaldensity' + today.strftime("%m%d")
+fig_save(fig_density,plot_folder,fname)
+
+
 nDays = 150
 dates = pd.DataFrame({'d':[day0 + pd.DateOffset(i) for i in np.arange(nDays)]})
 fname = location + 'predictions_' + today.strftime("%m%d")
-nSim = 2000
-samples = parm_sample_correlated(m,cov,nSim)
 predictions = epiT.predict(samples, df_ohio_full, nSim, dates, plot_folder, fname)
 

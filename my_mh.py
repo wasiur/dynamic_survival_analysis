@@ -18,21 +18,24 @@ def draw_from_prior(p):
     return [p[0].rvs(), p[1].rvs(), p[2].rvs()]
 
 def prior(theta,p):
-    return p[0].pdf(theta[0]) * p[1].pdf(theta[2]) * p[2].pdf(theta[2])
+    res = np.float64(p[0].pdf(theta[0]) * p[1].pdf(theta[2]) * p[2].pdf(theta[2]))
+    return res
 
-def log_prior(theta,p):
-    if prior(theta,p) > 0:
-        return np.log(prior(theta,p))
+def log_prior(theta, p):
+    if prior(theta, p) > 0:
+        return np.log(prior(theta, p), dtype=np.float64)
     else:
         return -np.inf
 
 
 def log_data_likelihood(epi, theta):
-    a,b,c=theta
+    a,b,c = theta
     S0 = [1.0]
     #t = np.linspace(0,self.data.max(),1000)
-    sol = odeint(Epidemic.Deriv_S, S0, epi.t, args=(a, b, c))
-    S = interp1d(epi.t,sol[:,0])
+    sol = euler1d(poisson_ode_fun, epi.t, abc=(a, b, c))
+    S = interp1d(epi.t, sol)
+    # sol = odeint(Epidemic.Deriv_S, S0, epi.t, args=(a, b, c))
+    # S = interp1d(epi.t,sol[:,0])
     smax = S(epi.T)
     factor = 1 - smax
     Z = 0
@@ -40,9 +43,9 @@ def log_data_likelihood(epi, theta):
     for x in epi.data.values:
         s = S(x)
         if s > 0:
-            z = (a*s*np.log(s)+b*(s-s**2)+c*s)/factor
+            z = (a*s*np.log(s, dtype=np.float64)+b*(s-s**2)+c*s)/factor
             if z > 0:
-                Z += np.log(z)
+                Z += np.log(z, dtype=np.float64)
                 j += 1
     return Z
 
@@ -55,13 +58,14 @@ def proposal_loglikelihood(theta1,theta2,q):
     return np.sum(np.log(q.pdf(theta2)))
 
 def draw_proposal(theta, proposal):
-    ss = proposal.rvs(size=len(theta)) + theta
+    ss = [proposal[0].rvs(), proposal[1].rvs(), proposal[2].rvs()]
+    # ss = proposal.rvs(size=len(theta)) + theta
     return ss
 
 def accept_prob(epi, p, theta1, theta2):
     l1 = log_posterior(epi,theta1,p)
     l2 = log_posterior(epi,theta2,p)
-    a = min(1, np.exp(l2 -l1))
+    a = min(1.0, np.exp(l2 - l1))
     return a
 
 def mh(epi, p, proposal, burnin=10**3, chain_length=10**4):
@@ -75,7 +79,7 @@ def mh(epi, p, proposal, burnin=10**3, chain_length=10**4):
         else:
             chain[i] = chain[i-1]
     after_burnin = chain[burnin:chain_length-1]
-    idx = np.arange(0,chain_length-burnin,100)
+    idx = np.arange(0,chain_length-burnin,20)
     return after_burnin[idx]
 
 

@@ -35,7 +35,7 @@ def main():
         fname = options.dsaobj_name
         output_folder = options.output_folder
         plot_folder = os.path.join(root_folder, output_folder)
-        dsaobj = pickle.load(os.path.join(plot_folder, fname), "rb")
+        dsaobj = pickle.load(open(os.path.join(plot_folder, fname), "rb"))
     df_recovery = pickle.load(open("df_recovery", "rb"))
     N = options.N
     location = options.location

@@ -750,7 +750,7 @@ class DSA():
         plt.xlabel('$R_0$')
         plt.ylabel('Density')
         sns.despine()
-        plt.title('$R_0$')
+        # plt.title('$R_0$')
 
         figrho = plt.figure()
         plt.hist(list(f.rho for f in self.fits),

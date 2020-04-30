@@ -98,10 +98,13 @@ def main():
 
     n_remove = (last_date_on_file - last_date).days
     print('Removing last %s days' % n_remove)
+    df1 = df_full.drop(df_full.tail(n_remove).index)
+    print("Using data till %s", df1["time"].max())
 
-    df_main = df_full.drop(df_full.tail(n_remove).index)
+    n_remove = (day0 - df_full.time.min()).days
+    print('Removing first %s days' % n_remove)
+    df_main = df1.iloc[n_remove:]
     print(df_main)
-    print("Using data till %s", df_main["time"].max())
 
     today = pd.to_datetime('today')
 
@@ -262,8 +265,6 @@ def main():
     fname = location + '_dsa_epi_' + today.strftime("%m%d") + '.pkl'
     with open(os.path.join(plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
         pickle.dump(dsaobj, output, protocol=pickle.HIGHEST_PROTOCOL)
-
-
 
 
 

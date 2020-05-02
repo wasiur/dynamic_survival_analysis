@@ -1,161 +1,282 @@
-## Run python DSA.py
 
-'''
-This python code performs dynamic survival analysis.
-'''
-
+import os
+import pandas as pd
 from numpy.random import RandomState
-import time
-
 rand = RandomState()
+import pystan
+from optparse import OptionParser
 
-from epidemiccore_w import *
-import os as os
-
-try:
-    import cPickle as pickle
-except ModuleNotFoundError:
-    import pickle
-
-today = pd.to_datetime('today')
-
-root_folder = os.getcwd()
-data_folder = os.path.join(root_folder,'data')
-
-fname = 'dsa_dict' + today.strftime("%m%d") + '.pkl'
-dsa_dict = pickle.load(open(os.path.join(data_folder,fname), "rb"))
-datafile = dsa_dict['datafile']
-plot_folder = dsa_dict['plot_folder']
-location = dsa_dict['location']
-last_date = dsa_dict['last_date']
-estimate_gamma = dsa_dict['estimate_gamma']
-ifsmooth = dsa_dict['ifsmooth']
-ifMPI = dsa_dict['ifMPI']
-
-plot_folder = os.path.join(root_folder,plot_folder)
-
-if not(os.path.exists(plot_folder)):
-    os.system('mkdir %s' %plot_folder)
-
-df_ohio_full = pd.read_csv(os.path.join(data_folder,datafile), parse_dates=["time"])
+from dsacore import *
+from mycolours import *
+my_plot_configs()
 
 
-last_date_on_file = df_ohio_full.time.max()
+def sample_correlated_asymptotic(m, cov):
+    sample = np.random.multivariate_normal(m, cov)
+    for i in range(len(m)):
+        if not (sample[i] > 0):
+            sample[i] = m[i]
+    return sample
 
-n_remove = (last_date_on_file - last_date).days
-print('Removing last %s days' % n_remove)
+def parm_sample_correlated(m, cov, nSample=1):
+    sample = np.zeros((nSample,len(m)), dtype=np.float)
+    for i in range(nSample):
+        sample[i] = sample_correlated_asymptotic(m, cov)
+    return sample
 
-df_ohio = df_ohio_full.drop(df_ohio_full.tail(n_remove).index)
-print(df_ohio)
+def main():
+    """
+    Runs the Dynamic Survival Analysis (DSA) model using the method of Maximum Likelihood Estimation (MLE).
+    The confidence intervals are generated using the bootstrap method.
 
-print(df_ohio["time"].max())
-
-day0 = df_ohio["time"].min()
-print(day0)
-today = pd.to_datetime('today')
-
-## smoothing counts
-df_ohio["rolling_mean"] = df_ohio.daily_confirm.rolling(window=3).mean()
-df_ohio["rolling_mean"] = df_ohio.apply(lambda dd: dd.daily_confirm if np.isnan(dd.rolling_mean)
-                                                   else dd.rolling_mean, axis=1)
-
-if ifsmooth:
-    print('Generating infection times by uniformly distributing throughout each day from smoothed daily counts\n')
-    infection_data = list(
-        i + rand.uniform() for i, y in enumerate(df_ohio['rolling_mean'].values) for z in range(y.astype(int)))
-    df = pd.DataFrame(infection_data, index=range(len(infection_data)), columns=['infection'])
-else:
-    print('Generating infection times by uniformly distributing throughout each day from actual daily counts\n')
-    infection_data = list(
-        i + rand.uniform() for i, y in enumerate(df_ohio['daily_confirm'].values) for z in range(y.astype(int)))
-    df = pd.DataFrame(infection_data,index=range(len(infection_data)),columns=['infection'])
-
-
-if estimate_gamma:
-    print('Generating recovery times by uniformly distributing throughout each day')
-    recovery_data = list(
-        i + rand.uniform() for i, y in enumerate(df_ohio['recovery'].values + df_ohio['deaths'].values) for z in
-        range(y.astype(int)))
-    df_recovery = pd.DataFrame(recovery_data, index=range(len(recovery_data)), columns=['recovery'])
-    pickle.dump(df_recovery, open("df_recovery", "wb"), protocol=3)
-
-
-bounds = [(0.1,1.0),(0.1,1.0),(1E-9,1E-1)]
-
-N = min(2000,df_ohio['cum_confirm'].iloc[-1])
-n = 1000
-plot_T = 150 # show system through end of epidemic
-import pickle
-st = time.time()
-
-epiT = Epidemic(file_or_df=df,bounds=bounds,abc=(0.4, 0.6, 1E-6),plot_T=plot_T)
-epiT.fit(N=N) # use all the data
-
-
-
-if ifMPI:
-    epiT.simulate_and_fit_parallel(N=N, n=n)
-else:
-    epiT.simulate_and_fit(N=N, n=n)
-
-print("Total time Simulate and Fit %s" % (time.time() - st))
-
-fig_inf_curve, fig_inf_T = epiT.plot_infections()
-fname = 'Tfinalinfections' + today.strftime("%m%d")
-fig_save(fig_inf_T,plot_folder,fname)
-
-if estimate_gamma:
-    print('Estimating gamma\n')
-    THREADS = 40
-    os.system("mpiexec -n %s python estimate_gamma_parallel.py" % THREADS)
-
-    fig_recovery = epiT.estimate_gamma(df_recovery = df_recovery, N=N, x0=(0.1, -5),
-                                       bounds=[(1.0 / 25, 1.0 / 5), (-10, 0)], approach='offset')
-    fname = 'recovery_' + today.strftime("%m%d")
-    fig_save(fig_recovery, plot_folder, fname)
-
-    fig_dropout = epiT.plot_dropout(pt=epiT.delta / epiT.a)
-    fname = 'Tfinaldropout' + today.strftime("%m%d")
-    fig_save(fig_dropout, plot_folder, fname)
+    :return: estimates of the model parameters
+    """
+    usage = "Usage: python DSA.py -d <datafile>"
+    parser = OptionParser(usage)
+    parser.add_option("-d", "--data-file", action="store", type="string", dest="datafile",
+                      help="Name of the data file.")
+    parser.add_option("-l", "--location", action="store", type="string", dest="location",
+                      default="Ohio", help="Name of the location.")
+    parser.add_option("-m", "--mpi", action="store_false", dest="ifMPI",
+                      default=True, help="Indicates whether to use MPI for parallelization.")
+    parser.add_option("-o", "--output-folder", action="store", dest="output_folder",
+                      default="plots_dsa", help="Name of the output folder")
+    parser.add_option("-s", "--smooth", action="store_true", dest="ifsmooth",
+                      default=False, help="Indicates whether the daily counts should be smoothed.")
+    parser.add_option("-f", "--final-date", action="store", type="string", dest="last_date",
+                      default=None, help="Last day of data to be used")
+    parser.add_option("-r", "--estimate-recovery-parameters", action="store_false", dest="estimate_gamma",
+                      default=True, help="Indicates the parameters of the recovery distribution will be estimated")
+    parser.add_option("-N", action="store", dest="N",
+                      default=2000, type="int",
+                      help="Size of the random sample")
+    parser.add_option("-T", "--T", action="store", type="float", dest="T",
+                      help="End of observation time", default=150.0)
+    parser.add_option("--day-zero", type="string", action="store",
+                      dest="day0", default=None,
+                      help="Date of onset of the epidemic")
+    parser.add_option("--niter", action="store", type="int", default=500,
+                      dest="niter",
+                      help="Number of bootstraps for parameter estimation")
+    parser.add_option("--threads", action="store", type="int",
+                      default=40, help="Number of threads for MPI")
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="Runs with default choices")
 
 
-fig_combined_infection = Epidemic.plot_infection_fits([epiT])
-fname = 'infections' + today.strftime("%m%d")
-fig_save(fig_combined_infection, plot_folder,fname)
+    (options, args) = parser.parse_args()
 
-'''
-# show optimizer results
-'''
+    root_folder = os.getcwd()
+    data_folder = os.path.join(root_folder, 'data')
 
-print("T=final boundary pts", epiT.number_boundary_samples, "T=final interior pts", epiT.number_interior_samples)
-# epiT.summary()
-epiT.summary(ifSave = True, fname=os.path.join(plot_folder,'summary.tex'))
-plt.show(block=True)
+    if options.verbose:
+        print('Entering verbose mode\n')
+        datafile = "dummy.csv"
+        print("DSA will be performed on ", datafile)
+        df_full = pd.read_csv(os.path.join(data_folder, datafile), parse_dates=["time"])
+        last_date_on_file = df_full.time.max()
+        last_date = last_date_on_file
+        print("No last date specified. Choosing the last date on the data file.\n")
+        day0 = df_full.time.min()
+        print("No day zero provided. Choosing the earliest onset date on the data file\n")
+    elif options.datafile is None:
+        parser.error("Please provide a data file")
+    else:
+        datafile = options.datafile
+        df_full = pd.read_csv(os.path.join(data_folder, datafile), parse_dates=["time"])
 
-fname = location + '_epi_' + today.strftime("%m%d") + '.pkl'
-with open(os.path.join (plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
-            pickle.dump(epiT, output, -1)
+    last_date_on_file = df_full.time.max()
+    location = options.location
+    ifMPI = options.ifMPI
+    output_folder = options.output_folder
+    ifsmooth = options.ifsmooth
+    niter = options.niter
+    threads = options.threads
+    if options.last_date is None:
+        last_date = last_date_on_file
+    else:
+        last_date = pd.to_datetime(options.last_date)
 
-fname = 'fitted_parms_' + today.strftime("%m%d") + '.csv'
-fitted_parms = pd.DataFrame({'a': list(f.a for f in epiT.fits), 'b' : list(f.b for f in epiT.fits), 'c': list(f.c for f in epiT.fits)})
-fitted_parms.to_csv(os.path.join(plot_folder,fname), index=False)
+    if options.day0 is None:
+        day0 = df_full.time.min()
+    else:
+        day0 = pd.to_datetime(options.day0)
+    estimate_gamma = options.estimate_gamma
+    N = options.N
+    T = options.T
 
-m = epiT.theta
-s = [np.sqrt(epiT.var_a()), np.sqrt(epiT.var_b()), np.sqrt(epiT.var_c())]
-cov = epiT.cov_abc()
+    plot_folder = os.path.join(root_folder, output_folder)
+    if not (os.path.exists(plot_folder)):
+        os.system('mkdir %s' % plot_folder)
 
-nSim = 5000
-samples = parm_sample_correlated(m,cov,nSim)
+    n_remove = (last_date_on_file - last_date).days
+    print('Removing last %s days' % n_remove)
+    df1 = df_full.drop(df_full.tail(n_remove).index)
+    print("Using data till %s", df1["time"].max())
 
-print('Plotting density fit\n')
-# fig_density = epiT.plot_density_fit()
-fig_density = epiT.plot_density_fit_posterior(samples)
-fname = 'Tfinaldensity' + today.strftime("%m%d")
-fig_save(fig_density,plot_folder,fname)
+    n_remove = (day0 - df_full.time.min()).days
+    print('Removing first %s days' % n_remove)
+    df_main = df1.loc[n_remove:]
+    print(df_main)
+
+    today = pd.to_datetime('today')
+
+    if (not 'daily_confirm' in df_main.columns) and (not 'cum_confirm' in df_main.columns):
+        raise ValueError("Please provide at least one of the following: daily_confirm, cum_confirm")
+    elif (not 'daily_confirm' in df_main.columns) and ('cum_confirm' in df_main.columns):
+        df_inf = df_main['cum_confirm'].diff().abs()
+        df_inf[0] = df_main['cum_confirm'].iloc[0]
+        df_main['daily_confirm'] = df_inf
+    elif ('daily_confirm' in df_main.columns) and (not 'cum_confirm' in df_main.columns):
+        df_main["cum_confirm"] = df_main.daily_confirm.cumsum()
+
+    if ifsmooth:
+        ## smoothing counts
+        df_main["rolling_mean"] = df_main.daily_confirm.rolling(window=3).mean()
+        df_main["rolling_mean"] = df_main.apply(lambda dd: dd.daily_confirm if np.isnan(dd.rolling_mean)
+        else dd.rolling_mean, axis=1)
+        print('Generating infection times by uniformly distributing throughout each day from smoothed daily counts\n')
+        infection_data = list(
+            i + rand.uniform() for i, y in enumerate(df_main['rolling_mean'].values) for z in range(y.astype(int)))
+        df = pd.DataFrame(infection_data, index=range(len(infection_data)), columns=['infection'])
+    else:
+        print('Generating infection times by uniformly distributing throughout each day from actual daily counts\n')
+        infection_data = list(
+            i + rand.uniform() for i, y in enumerate(df_main['daily_confirm'].values) for z in range(y.astype(int)))
+        df = pd.DataFrame(infection_data, index=range(len(infection_data)), columns=['infection'])
+
+    if estimate_gamma:
+        print('Generating recovery times by uniformly distributing throughout each day')
+        if (not 'recovery' in df_main.columns) and (not 'deaths' in df_main.columns) \
+                and (not 'cum_heal' in df_main.columns) and (not 'cum_dead' in df_main.columns):
+            raise ValueError('Please provide at least one of the following: recovery, deaths, cum_heal, cum_dead.\n')
+        elif ('recovery' in df_main.columns) and (not 'deaths' in df_main.columns) and (not 'cum_dead' in df_main.columns):
+            recovery_data = list(
+                i + rand.uniform() for i, y in enumerate(df_main['recovery'].values) for z in
+                range(y.astype(int)))
+            print('Using only recovery counts.\n')
+        elif ('cum_heal' in df_main.columns) and (not 'deaths' in df_main.columns) and (not 'cum_dead' in df_main.columns):
+            # get daily recovery counts
+            df_cure = df_main['cum_heal'].diff().abs()
+            df_cure[0] = df_main['cum_heal'].iloc[0]
+            df_main['recovery'] = df_cure
+            recovery_data = list(
+                i + rand.uniform() for i, y in enumerate(df_main['recovery'].values) for z in
+                range(y.astype(int)))
+            print('Using only recovery counts.\n')
+        elif (not 'recovery' in df_main.columns) and ('deaths' in df_main.columns) and (not 'cum_heal' in df_main.columns):
+            recovery_data = list(
+                i + rand.uniform() for i, y in enumerate(df_main['deaths'].values) for z in
+                range(y.astype(int)))
+            print('Using only death counts.\n')
+        elif ('cum_dead' in df_main.columns) and (not 'recovery' in df_main.columns) and (not 'cum_heal' in df_main.columns):
+            # get daily death counts
+            df_death = df_main['cum_dead'].diff().abs()
+            df_death[0] = df_main['cum_dead'].iloc[0]
+            df_main['deaths'] = df_death
+            recovery_data = list(
+                i + rand.uniform() for i, y in enumerate(df_main['deaths'].values) for z in
+                range(y.astype(int)))
+            print('Using only death counts.\n')
+        else:
+            recovery_data = list(
+                i + rand.uniform() for i, y in enumerate(df_main['recovery'].values + df_main['deaths'].values) for z in
+                range(y.astype(int)))
+            print('Using both recovery and death counts.\n')
+        df_recovery = pd.DataFrame(recovery_data, index=range(len(recovery_data)), columns=['recovery'])
 
 
-nDays = 150
-dates = pd.DataFrame({'d':[day0 + pd.DateOffset(i) for i in np.arange(nDays)]})
-fname = location + 'predictions_' + today.strftime("%m%d")
-predictions = epiT.predict(samples, df_ohio_full, nSim, dates, plot_folder, fname)
+    bounds = [(0.1, 2.0), (0.1, 2.0), (1e-9, 1e-3)]
+
+    dsaobj = DSA(df=df, bounds=bounds)
+    dsaobj.fit(N=N, laplace=False)
+    if ifMPI:
+        dsaobj.simulate_and_fit_parallel(N=N, n=niter, laplace=False)
+    else:
+        dsaobj.simulate_and_fit(N=N, n=niter, laplace=False)
+    dsaobj.summary()
+
+    ## posterior histograms
+    figa, figb, figc, figR0, figrho, fign, figsT, figkinfty, figsinfty, figsinvrho = dsaobj.get_histograms()
+    fname = location + 'posterior_hist_a_' + today.strftime("%m%d")
+    fig_save(figa, plot_folder, fname)
+    fname = location + 'posterior_hist_b_' + today.strftime("%m%d")
+    fig_save(figb, plot_folder, fname)
+    fname = location + 'posterior_hist_c_' + today.strftime("%m%d")
+    fig_save(figc, plot_folder, fname)
+    fname = location + 'posterior_hist_R0_' + today.strftime("%m%d")
+    fig_save(figR0, plot_folder, fname)
+    fname = location + 'posterior_hist_rho_' + today.strftime("%m%d")
+    fig_save(figrho, plot_folder, fname)
+    fname = location + 'posterior_hist_n_' + today.strftime("%m%d")
+    fig_save(fign, plot_folder, fname)
+    fname = location + 'posterior_hist_sT_' + today.strftime("%m%d")
+    fig_save(figsT, plot_folder, fname)
+    fname = location + 'posterior_hist_kinfty_' + today.strftime("%m%d")
+    fig_save(figkinfty, plot_folder, fname)
+    fname = location + 'posterior_hist_sinfty_' + today.strftime("%m%d")
+    fig_save(figsinfty, plot_folder, fname)
+    fname = location + 'posterior_hist_invrho_' + today.strftime("%m%d")
+    fig_save(figsinvrho, plot_folder, fname)
+
+    m = dsaobj.theta
+    cov = dsaobj.cov_abr()
+    nSim = 1000
+    samples = parm_sample_correlated(m, cov, nSim)
+
+    nDays = T
+    dates = pd.DataFrame({'d': [day0 + pd.DateOffset(i) for i in np.arange(nDays)]})
+
+    fig_a, fig_b, predictions = dsaobj.predict(samples, df=df_main, dates=dates)
+    fname = location + 'predictions_' + today.strftime("%m%d")
+    fig_save(fig_a, plot_folder, fname)
+    fname = location + 'predictions_daily_new' + today.strftime("%m%d")
+    fig_save(fig_b, plot_folder, fname)
+    fname = location + 'predictions_' + today.strftime("%m%d") + '.csv'
+    predictions.to_csv(os.path.join(plot_folder, fname), index=False)
+    print('Predictions done.\n')
+
+    fig_density = dsaobj.plot_density_fit_posterior(samples)
+    fname = location + 'Tfinaldensity' + today.strftime("%m%d")
+    fig_save(fig_density, plot_folder, fname)
+    print('Density estimation done.\n')
+
+    if estimate_gamma:
+        dsaobj.estimate_gamma(df_recovery=df_recovery, N=N, x0=(0.1, -5),
+                          bounds=[(1.0 / 25, 1.0 / 5), (-10, 0)], approach='offset')
+        if ifMPI:
+            pickle.dump(df_recovery, open("df_recovery", "wb"), protocol=3)
+            fname = location + '_dsa_epi_' + today.strftime("%m%d") + '.pkl'
+            with open(os.path.join(plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
+                pickle.dump(dsaobj, output, protocol=pickle.HIGHEST_PROTOCOL)
+            commandstr = "mpiexec -n " + str(threads) + " python estimate_gamma_parallel.py -d " + fname + " -o " + output_folder + " -l " + location
+            os.system(commandstr)
+
+            fname = location + '_gammas_fitted_' + today.strftime("%m%d") + '.csv'
+            gammas_fitted = pd.read_csv(os.path.join(plot_folder, fname))
+
+            fname = location + 'posterior_hist_gamma_' + today.strftime("%m%d")
+            fig_g = plt.figure()
+            plt.hist(gammas_fitted.gamma.values, bins=50, density=True,
+                 color=cyans['cyan3'].get_rgb())
+            plt.xlabel('$\\gamma$')
+            plt.ylabel('Density')
+            sns.despine()
+            fig_save(fig_g, plot_folder, fname)
+        print('Estimation of recovery parameters done.\n')
+
+    fname = location + '_dsa_epi_' + today.strftime("%m%d") + '.pkl'
+    with open(os.path.join(plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
+        pickle.dump(dsaobj, output, protocol=pickle.HIGHEST_PROTOCOL)
+
+    fname = os.path.join(plot_folder, location + '_fit_summary.tex')
+    dsaobj.summary(ifSave=True, fname=fname)
+
+
+
+if __name__ == "__main__":
+    main()
+
+
 

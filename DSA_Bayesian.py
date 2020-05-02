@@ -1,5 +1,10 @@
-import os
+"""
+Runs the Dynamic Survival Analysis (DSA) model using a Bayesian MCMC approach.
+"""
 
+
+### Import packages
+import os
 import pandas as pd
 from numpy.random import RandomState
 rand = RandomState()
@@ -13,7 +18,7 @@ my_plot_configs()
 
 def main():
     """
-    Runs the dynamic survival analysis model. The MCMC step is performed using Stan.
+    Runs the Dynamic Survival Analysis (DSA) model. The MCMC step is performed using Stan.
 
     :return: posterior distributions of the parameters
     """
@@ -103,7 +108,7 @@ def main():
 
     n_remove = (day0 - df_full.time.min()).days
     print('Removing first %s days' % n_remove)
-    df_main = df1.iloc[n_remove:]
+    df_main = df1.loc[n_remove:]
     print(df_main)
 
     today = pd.to_datetime('today')
@@ -175,8 +180,7 @@ def main():
 
     dsaobj = DSA(df=df)
     sm, smfit = dsaobj.bayesian_fit(N=N, niter=niter)
-    fname = os.path.join(plot_folder, location + '_fit_summary.tex')
-    dsaobj.summary(ifSave=True, fname=fname)
+    dsaobj.summary()
 
     fname = location + '_dsa_epi_' + today.strftime("%m%d") + '.pkl'
     with open(os.path.join(plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
@@ -265,6 +269,9 @@ def main():
     fname = location + '_dsa_epi_' + today.strftime("%m%d") + '.pkl'
     with open(os.path.join(plot_folder, fname), 'wb') as output:  # Overwrites any existing file.
         pickle.dump(dsaobj, output, protocol=pickle.HIGHEST_PROTOCOL)
+
+    fname = os.path.join(plot_folder, location + '_fit_summary.tex')
+    dsaobj.summary(ifSave=True, fname=fname)
 
 
 

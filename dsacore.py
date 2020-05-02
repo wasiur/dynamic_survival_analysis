@@ -1010,7 +1010,7 @@ class DSA():
         denseval = list(dense(x) * 2 for x in self.timepoints)
         plt.plot(self.timepoints, denseval, '-', color=maroons['maroon3'].get_rgb(), lw=3)
         plt.fill_between(self.timepoints, Dslow, Dshigh, alpha=.3, color=maroons['maroon3'].get_rgb())
-        plt.legend()
+        # plt.legend()
         plt.ylabel('$-S_t/(1-S_T)$')
         plt.xlabel('t')
         c = cumtrapz(Dmean, self.timepoints)

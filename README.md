@@ -49,22 +49,7 @@ time  | daily_confirm | recovery | deaths |	cum_confirm |	cum_heal |	cum_dead
 At least one of ```daily_confirm``` and ```cum_confirm``` must be present. If the parameters corresponding to the recovery distribution need to be estimated, at least of the four ```recovery```, ```deaths```, ```cum_heal```, and ```cum_dead``` must be present in the dataset. 
 
 
-
-Description of the variables:
-Name | Description
---------- | ---------
-datafile | Name of file containing the daily counts. It should be a ```.csv``` file.
-location | Name of the location. This name will be added to the output files.
-plot_folder | The name of the output folder. All output figures and tables will be stored in this folder.
-estimate_gamma | Binary variable indicating whether to estimate the recovery rate. By default, it is set to ```True```.
-last_date | Last date of data to be considered for modelling purposes.
-ifMPI | Binary variable indicating whether to use ```MPI``` for parallelization. By default, it is set to ```True```.
-ifsmooth | Binary variable indicating whether the daily new infection counts need to be smoothed by using the moving average method. BY default, it is set to ```True```.
-burn_in | Integer variable indicating the burn-in for the Metropolis-Hastings scheme.
-nChains | Integer variable indicating number of parallel Metropolis-Hastings chains. 
-
-
-If recovery information is not available, the model can be still run by explicitly setting the variable ```estimate_gamma = False```.
+If no recovery information is available, the model can be still run by explicitly providing the ```-r``` option.
 
 We used COVID-19 data published by the New York Times to inform our model. The repository can be accessed [here](https://github.com/nytimes/covid-19-data).
 

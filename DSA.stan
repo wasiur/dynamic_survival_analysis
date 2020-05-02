@@ -2,10 +2,10 @@ functions {
     real[] poisson_ode_fun(real t, real[] y, real [] parms,  real[] x_r, int[] x_i){
         real a = parms[1];
         real b = parms[2];
-        real kappa = parms[3];
-        real rho = parms[4];
+        real rho = parms[3];
         real dydt[1];
-        dydt[1] = - a*y[1]*(1-pow(y[1], kappa-1))*inv(1-kappa) - b*(1- pow(y[1], kappa))*pow(y[1], kappa) - b*rho*pow(y[1], kappa);
+
+        dydt[1] = - a*y[1]*log(y[1]) - b*(y[1] - y[1]*y[1]) - b*rho*y[1];
         return dydt;
         }
 }
@@ -25,27 +25,23 @@ transformed data {
 parameters {
     real<lower=0> a;
     real<lower=0> b;
-    real<lower=0, upper=1.0> kappa;
     real<lower=0, upper=1.0> rho;
 }
 
 transformed parameters {
-    real R0 = kappa*b/a;
+    real R0 = b/a;
     real inv_rho = 1.0/rho;
     real c = b*rho;
 }
 
 model {
-    real parms[4];
+    real parms[3];
     real ic[1];
     real s[N,1];
     real smax;
     real factor;
 
-    parms[1] = a;
-    parms[2] = b;
-    parms[3] = kappa;
-    parms[4] = rho;
+    parms[1] = a; parms[2] = b; parms[3] = rho;
     ic[1] = 1.0;
 
     s = integrate_ode_rk45(poisson_ode_fun,ic,t0,infectiontimes,parms,x_r,x_i);
@@ -54,7 +50,7 @@ model {
     factor = 1 - smax;
 
     for (i in 1:N){
-        target += log((a*s[i,1]*(1- pow(s[i,1], kappa-1))*inv(1-kappa) + b*(1-pow(s[i,1], kappa))*pow(s[i,1], kappa) + b*rho*pow(s[i,1],kappa))/factor);
+        target += log((a*s[i,1]*log(s[i,1]) + b*(s[i,1]-s[i,1]*s[i,1]) + b*rho*s[i,1])/factor);
     }
-    //target += +gamma_lpdf(a|2,2)+ gamma_lpdf(b|2,2) + beta_lpdf(rho|1,1) + beta_lpdf(kappa|1,1);
+    target += +gamma_lpdf(a|2,2)+ gamma_lpdf(b|2,2) + beta_lpdf(rho|1,1);
 }

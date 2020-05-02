@@ -55,7 +55,7 @@ def main():
     estimate_gamma_in_parallel(dsaobj, a_samples=a_samples,
                                b_samples=b_samples, rho_samples=rho_samples,
                                df_recovery=df_recovery,
-                               start_idx=start_id, end_idx=end_id)
+                               start_idx=start_id, end_idx=end_id, N=N)
 
     if rank == 0:
         colNames = ['gamma', 'offset']
@@ -76,7 +76,7 @@ def main():
     comm.Barrier()
 
 
-def estimate_gamma_in_parallel(epi, a_samples, b_samples, rho_samples, df_recovery, start_idx, end_idx):
+def estimate_gamma_in_parallel(epi, a_samples, b_samples, rho_samples, df_recovery, start_idx, end_idx, N=2000):
     gammas = []
     offsets = []
     for index in range(start_idx, end_idx):

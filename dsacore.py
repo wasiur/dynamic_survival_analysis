@@ -517,6 +517,9 @@ class DSA():
             ifSave=False, fname='summary.tex'):
         if N is None:
             self.data = self.df['infection']
+        elif N > self.df.size:
+            self.data = self.df['infection']
+            N = self.df.size
         else:
             self.data = self.df['infection'].sample(N, replace=True)
 
@@ -610,6 +613,9 @@ class DSA():
 
     def bayesian_fit(self, N=None, niter=5000, nchains=4):
         if N is None:
+            self.data = self.df['infection']
+            N = self.df.size
+        elif N > self.df.size:
             self.data = self.df['infection']
             N = self.df.size
         else:

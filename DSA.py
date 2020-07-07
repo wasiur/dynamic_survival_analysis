@@ -58,6 +58,8 @@ def main():
     parser.add_option("--niter", action="store", type="int", default=500,
                       dest="niter",
                       help="Number of bootstraps for parameter estimation")
+    parser.add_option("--nchains", action="store", type="int", default=4, dest="nchains",
+                      help="Number of chains")
     parser.add_option("--threads", action="store", type="int",
                       default=40, help="Number of threads for MPI")
     parser.add_option("-v", "--verbose",
@@ -110,6 +112,15 @@ def main():
     if not (os.path.exists(plot_folder)):
         os.system('mkdir %s' % plot_folder)
 
+    if (not 'daily_confirm' in df_full.columns) and (not 'cum_confirm' in df_full.columns):
+        raise ValueError("Please provide at least one of the following: daily_confirm, cum_confirm")
+    elif (not 'daily_confirm' in df_full.columns) and ('cum_confirm' in df_full.columns):
+        df_inf = df_full['cum_confirm'].diff().abs()
+        df_inf[0] = df_full['cum_confirm'].iloc[0]
+        df_full['daily_confirm'] = df_inf
+    elif ('daily_confirm' in df_full.columns) and (not 'cum_confirm' in df_full.columns):
+        df_full["cum_confirm"] = df_full.daily_confirm.cumsum()
+
     n_remove = (last_date_on_file - last_date).days
     print('Removing last %s days' % n_remove)
     df1 = df_full.drop(df_full.tail(n_remove).index)
@@ -121,15 +132,6 @@ def main():
     print(df_main)
 
     today = pd.to_datetime('today')
-
-    if (not 'daily_confirm' in df_main.columns) and (not 'cum_confirm' in df_main.columns):
-        raise ValueError("Please provide at least one of the following: daily_confirm, cum_confirm")
-    elif (not 'daily_confirm' in df_main.columns) and ('cum_confirm' in df_main.columns):
-        df_inf = df_main['cum_confirm'].diff().abs()
-        df_inf[0] = df_main['cum_confirm'].iloc[0]
-        df_main['daily_confirm'] = df_inf
-    elif ('daily_confirm' in df_main.columns) and (not 'cum_confirm' in df_main.columns):
-        df_main["cum_confirm"] = df_main.daily_confirm.cumsum()
 
     if ifsmooth:
         ## smoothing counts
@@ -228,7 +230,9 @@ def main():
     nDays = T
     dates = pd.DataFrame({'d': [day0 + pd.DateOffset(i) for i in np.arange(nDays)]})
 
-    fig_a, fig_b, predictions = dsaobj.predict(samples, df=df_main, dates=dates)
+    fig_a, fig_b, predictions = dsaobj.predict(samples, df=df_main, dates=dates, n0=min(df_main.cum_confirm),
+                                               d0=df_main.daily_confirm.iloc[0],
+                                               theta=dsaobj.theta)
     fname = location + 'predictions_' + today.strftime("%m%d")
     fig_save(fig_a, plot_folder, fname)
     fname = location + 'predictions_daily_new' + today.strftime("%m%d")

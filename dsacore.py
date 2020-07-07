@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 import seaborn as sns
 import scipy as sc
 from scipy.integrate import solve_ivp
@@ -607,7 +608,7 @@ class DSA():
         self.fits = epidemic_objects_array_fitted
         return self
 
-    def bayesian_fit(self, N=None, niter=5000):
+    def bayesian_fit(self, N=None, niter=5000, nchains=4):
         if N is None:
             self.data = self.df['infection']
             N = self.df.size
@@ -623,7 +624,7 @@ class DSA():
                            t0=0.0)
 
         sm = pystan.StanModel(file='DSA.stan')
-        fit = sm.sampling(data=pystan_data, iter=niter, chains=4)
+        fit = sm.sampling(data=pystan_data, iter=niter, chains=nchains)
         print(fit)
         res_a = fit.extract()['a']
         res_b = fit.extract()['b']
@@ -903,13 +904,15 @@ class DSA():
                 outputfile.write(str1 + tabulate(table, headers=headers, tablefmt="latex_booktabs") + str2)
         return self
 
-    def predict(self, samples, df, dates):
+    def predict(self, samples, df, dates, n0=1, d0=0, theta=None):
         nSamples = np.size(samples, axis=0)
         nDays = len(dates)
         time_points = np.arange(nDays)
         mean = np.zeros((nSamples, nDays), dtype=np.float)
         mean_daily = np.zeros((nSamples, nDays), dtype=np.float)
-        theta = np.mean(samples, axis=0)
+        if theta is not None:
+            theta = np.mean(samples, axis=0)
+        # theta = np.mean(samples, axis=0)
         # n = self.n
         my_plot_configs()
         fig_a = plt.figure()
@@ -920,9 +923,9 @@ class DSA():
             odefun = lambda t, S: DSA.poisson_ode_fun(t, S, a=a, b=b, rho=rho)
             t, sol = euler1d(odefun=odefun, endpoints=[0.0, nDays + 1])
             S = interp1d(t, sol)
-            mean[i] = np.asarray(list(n * (1 - S(x)) for x in time_points))
-            mean[i][0] = 1
-            mean_daily[i] = np.append(mean[i][0], np.diff(mean[i]))
+            mean[i] = np.asarray(list(n * (1 - S(x)) + n0 for x in time_points))
+            # mean[i][0] = 1
+            mean_daily[i] = np.append(d0, np.diff(mean[i]))
             l1, = plt.plot(dates['d'].dt.date, mean[i], '-', color=cyans['cyan1'].get_rgb(), lw=1, alpha=0.05)
 
         m_ = np.int64(np.ceil(np.mean(mean, axis=0)))
@@ -930,10 +933,11 @@ class DSA():
         h = np.int64(np.ceil(np.quantile(mean, q=0.975, axis=0)))
 
         n = self.n
+        a, b, rho = theta
         odefun = lambda t, S: DSA.poisson_ode_fun(t, S, a=self.a, b=self.b, rho=self.rho)
         t, sol = euler1d(odefun=odefun, endpoints=[0.0, nDays + 1])
         S = interp1d(t, sol)
-        m = np.asarray(list(n * (1 - S(x)) for x in time_points))
+        m = np.asarray(list(n * (1 - S(x)) + n0 for x in time_points))
 
         l2 = plt.plot(dates['d'].dt.date, m, '-', color=cyans['cyan5'].get_rgb(), lw=3)
         #     l2_, = plt.plot(dates['d'].dt.date, m_, '-', color=myColours['tud1d'].get_rgb(), lw=3, label='With mitigation')
@@ -947,6 +951,9 @@ class DSA():
                       lw=2)
         plt.xlabel('Dates')
         plt.ylabel('Cumulative infections')
+        ax = plt.gca()
+        date_form = DateFormatter("%m-%d")
+        ax.xaxis.set_major_formatter(date_form)
         sns.despine()
 
         fig_b = plt.figure()
@@ -963,6 +970,9 @@ class DSA():
         # l7 = plt.plot(df_ohio['time'].values, df_ohio['daily_confirm'].values, color=myColours['tud11d'].get_rgb(), lw=3)
         plt.ylabel('Daily new infections')
         plt.xlabel('Dates')
+        ax = plt.gca()
+        date_form = DateFormatter("%m-%d")
+        ax.xaxis.set_major_formatter(date_form)
         sns.despine()
         # plt.legend(handles=[l2nd, l2])
         # fig_save(fig, Plot_Folder, fname_)
@@ -1002,7 +1012,7 @@ class DSA():
         plt.plot(self.timepoints, Dmean, '-', color=cyans['cyan3'].get_rgb(), lw=3)
         plt.plot(self.timepoints, Dslow, '--', color=cyans['cyan3'].get_rgb(), lw=1)
         plt.plot(self.timepoints, Dshigh, '--', color=cyans['cyan3'].get_rgb(), lw=1)
-        plt.axvline(x=self.T, color=junglegreen['green3'].get_rgb(), linestyle='-')
+#        plt.axvline(x=self.T, color=junglegreen['green3'].get_rgb(), linestyle='-')
 
         mirrored_data = (2 * self.T - self.df['infection'].values).tolist()
         combined_data = self.df['infection'].values.tolist() + mirrored_data

@@ -92,6 +92,7 @@ Alternatively, perform the following:
 python DSA_Bayesian.py -d <datafile>
 ```
 from the terminal. 
+
 2. The maximum likelihood based DSA model can be run by invoking
 ```bash
 python DSA.py -d <datafile>

@@ -16,6 +16,7 @@ If you have questions, comments, criticisms, or corrections, please email me at 
 	```
 	from your terminal. Alternatively, you can download this git repository and unzip it at the destination folder.
  2. **Get dependencies.** Our implementation depends on a number of packages. In order for the parallelization to run smoothly, we recommend installing the following python environment "dynamic_survival_analysis". 
+ 
 	**Way 1: Using Python to deploy. (Linux)** The Python environment  (version 3.6.x and above) should be installed sequentially, the required list of Python package can be obtained from the file [_dsa.yml_](https://github.com/wasiur/dynamic_survival_analysis/blob/master/dsa.yml). It is recommended to install each package with 
 	```bash
 	python -m pip install --upgrade mymodulename
@@ -23,6 +24,7 @@ If you have questions, comments, criticisms, or corrections, please email me at 
 	to avoid the error mentioned [here](https://stackoverflow.com/questions/15052206/python-pip-install-module-is-not-found-how-to-link-python-to-pip-location). This is the most reliable way to deploy on Linux platform.
 	
 	Since the mingw on Windows is not fully compatible, if you must use Windows platform, please use way 2 below.
+	
 	**Way 2: Using Anaconda to deploy. (Windows/macOS)** The Anaconda environment is included in the file _dsa.yml_ (however, the file _environment.yml_ contains the specific environment we use for macOS platform). If you are using Anaconda (4.5 or above is recommended), the environment can be installed by running
 	```bash
 	conda env create -f dsa.yml

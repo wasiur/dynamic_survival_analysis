@@ -1,0 +1,31 @@
+#!/bin/bash
+#PBS -j oe 
+#PBS -m abe
+#PBS -M luo.619@osu.edu
+
+#COMMANDS TO RUN
+module load intel/16.0.3 
+
+#FIRST-TIME ENVIRONMENT SETUP
+#wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+#bash Miniconda3-latest-Linux-x86_64.sh
+
+#SETUP CONDA BASH
+source /home/luo.619/miniconda3/etc/profile.d/conda.sh
+
+#CREATE CONDA ENVIRONMENT IF FIRST-TIME
+#conda env create -f /home/luo.619/dynamic_survival_analysis/dsa.yml
+
+#ACTIVATE DSA ENVIRONMENT
+conda activate dsa
+cd /home/luo.619/dynamic_survival_analysis/
+
+#RUN DSA ANALYSIS
+#'-m False' disables the MPI, if your nodes support MPI, you can change it to '-m True'.
+python /home/luo.619/dynamic_survival_analysis/DSA_Bayesian.py -d HMC_CM_DataPoisson_35_Weibull_125_05_Gamma_45_05_nS1000_nI10.csv -o HMC_CM_DataPoisson_35_Weibull_125_05_Gamma_45_05_nS1000_nI10 -m False 
+ls
+
+#QSUB COMMAND
+#qsub -l walltime=240:00:00,nodes=1:ppn=4,mem=48GB /home/luo.619/dynamic_survival_analysis/DSA.pbs
+
+

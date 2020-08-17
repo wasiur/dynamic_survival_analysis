@@ -1,0 +1,5 @@
+setwd("D:/GPSDE/Data/csv")
+temp = list.files(pattern="*.csv")
+temp_folder = tools::file_path_sans_ext(temp)
+#myfiles = lapply(temp, read.delim)
+write.table( paste0('python /home/luo.619/dynamic_survival_analysis/DSA_Bayesian.py -d ',temp,' -o ',temp_folder, ' -m False \n'),'readyCMD.txt',col.names = F,row.names = F,quote = F)

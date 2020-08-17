@@ -1,0 +1,13 @@
+DegreeDistName,Poisson
+DegreeDistParms,[5.]
+CIdistName,Weibull
+CIdistParms,[1.25 0.5 ]
+recovDistName,Gamma
+recovDistParms,[4.5 0.5]
+nS,1000
+nI,10
+T,10.0
+rho,0.01
+nSim,1000
+nTgrid,100
+nUgrid,100
